@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
+    <title>SkyMaster Pro - Flight Simulator</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; touch-action: none; -webkit-touch-callout: none; user-select: none; }
+        body { overflow: hidden; background: #000; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; }
+        #game-container { position: fixed; top: 0; left: 0; width: 100%; height: 100%; }
+        canvas { display: block; }
+
+        :root {
+            --hud-scale: 1;
+            --hud-primary: #00ffc8;
+            --hud-warn: #ff4444;
+            --hud-bg: rgba(0, 15, 30, 0.55);
+            --hud-border: rgba(0, 255, 200, 0.35);
+            --hud-glow: 0 0 8px rgba(0, 255, 200, 0.3);
+        }
+        @media (max-width: 768px) { :root { --hud-scale: 0.75; } }
+        @media (max-width: 380px) { :root { --hud-scale: 0.6; } }
+        @media (min-width: 1024px) { :root { --hud-scale: 0.85; } }
+        @media (min-width: 1400px) { :root { --hud-scale: 0.9; } }
+
+        #hud {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none; z-index: 10; overflow: hidden;
+        }
+
+        .crosshair {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            width: calc(24px * var(--hud-scale)); height: calc(24px * var(--hud-scale));
+            pointer-events: none;
+        }
+        .crosshair::before, .crosshair::after {
+            content: ''; position: absolute; background: rgba(0, 255, 200, 0.7);
+        }
+        .crosshair::before { top: 50%; left: 0; width: 100%; height: calc(1.5px * var(--hud-scale)); transform: translateY(-50%); }
+        .crosshair::after { left: 50%; top: 0; width: calc(1.5px * var(--hud-scale)); height: 100%; transform: translateX(-50%); }
+        .crosshair-center {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            width: calc(4px * var(--hud-scale)); height: calc(4px * var(--hud-scale));
+            border-radius: 50%; background: #ffeb3b; border: calc(1.5px * var(--hud-scale)) solid rgba(0, 255, 200, 0.8);
+        }
+
+        .horizon-wrap {
+            position: absolute; bottom: calc(10px * var(--hud-scale)); left: calc(10px * var(--hud-scale));
+            width: calc(100px * var(--hud-scale)); height: calc(100px * var(--hud-scale));
+            border-radius: 50%; border: calc(2px * var(--hud-scale)) solid var(--hud-border);
+            background: var(--hud-bg); overflow: hidden; backdrop-filter: blur(3px); box-shadow: var(--hud-glow);
+        }
+        .horizon-inner { position: absolute; top: 0; left: 0; width: 100%; height: 100%; transition: transform 0.1s linear; }
+        .horizon-sky { position: absolute; top: 0; left: 0; width: 100%; height: 50%; background: linear-gradient(to bottom, #1a5a8a, #2a8ac0); }
+        .horizon-ground { position: absolute; bottom: 0; left: 0; width: 100%; height: 50%; background: linear-gradient(to top, #5a4228, #7a6240); }
+        .horizon-line { position: absolute; top: 50%; left: 0; width: 100%; height: calc(1.5px * var(--hud-scale)); background: #fff; transform: translateY(-50%); }
+        .horizon-plane {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            width: calc(35px * var(--hud-scale)); height: calc(2.5px * var(--hud-scale));
+            background: #ffeb3b; border-radius: 1px;
+        }
+        .horizon-plane::before, .horizon-plane::after {
+            content: ''; position: absolute; top: calc(-5px * var(--hud-scale));
+            width: calc(12px * var(--hud-scale)); height: calc(12px * var(--hud-scale));
+            border: calc(2px * var(--hud-scale)) solid #ffeb3b; border-bottom: none; border-radius: 50% 50% 0 0;
+        }
+        .horizon-plane::before { left: calc(-8px * var(--hud-scale)); }
+        .horizon-plane::after { right: calc(-8px * var(--hud-scale)); }
+        .horizon-bank-ticks { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+        .bank-tick {
+            position: absolute; top: calc(6px * var(--hud-scale)); left: 50%;
+            width: calc(1.5px * var(--hud-scale)); height: calc(6px * var(--hud-scale));
+            background: rgba(255,255,255,0.6); transform-origin: 50% calc(44px * var(--hud-scale));
+        }
+
+        .compass-wrap {
+            position: absolute; top: calc(6px * var(--hud-scale)); left: 50%; transform: translateX(-50%);
+            width: calc(260px * var(--hud-scale)); height: calc(32px * var(--hud-scale));
+            background: var(--hud-bg); border: calc(1px * var(--hud-scale)) solid var(--hud-border);
+            border-radius: calc(16px * var(--hud-scale)); backdrop-filter: blur(3px); overflow: hidden; box-shadow: var(--hud-glow);
+        }
+        .compass-tape { position: absolute; height: 100%; display: flex; align-items: center; color: var(--hud-primary); font-size: calc(11px * var(--hud-scale)); font-weight: 700; font-family: monospace; transition: transform 0.1s linear; white-space: nowrap; }
+        .compass-tape span { display: inline-block; width: calc(32.5px * var(--hud-scale)); text-align: center; }
+        .compass-marker { position: absolute; left: 50%; top: 0; transform: translateX(-50%); width: calc(2px * var(--hud-scale)); height: 100%; background: #ffeb3b; }
+        .compass-marker::after { content: '▼'; position: absolute; top: calc(-2px * var(--hud-scale)); left: 50%; transform: translateX(-50%); color: #ffeb3b; font-size: calc(8px * var(--hud-scale)); }
+        .compass-heading { position: absolute; top: calc(40px * var(--hud-scale)); left: 50%; transform: translateX(-50%); color: var(--hud-primary); font-size: calc(13px * var(--hud-scale)); font-weight: bold; font-family: monospace; text-shadow: 0 0 5px rgba(0,255,200,0.5); }
+
+        .speed-wrap {
+            position: absolute; left: calc(6px * var(--hud-scale)); top: 50%; transform: translateY(-50%);
+            width: calc(44px * var(--hud-scale)); height: calc(180px * var(--hud-scale));
+            background: var(--hud-bg); border: calc(1px * var(--hud-scale)) solid var(--hud-border);
+            border-radius: calc(8px * var(--hud-scale)); backdrop-filter: blur(3px); overflow: hidden; box-shadow: var(--hud-glow);
+        }
+        .speed-tape { position: absolute; width: 100%; text-align: center; color: var(--hud-primary); font-size: calc(10px * var(--hud-scale)); font-family: monospace; transition: transform 0.1s; }
+        .speed-cursor { position: absolute; left: 0; width: 100%; height: calc(2px * var(--hud-scale)); background: #ffeb3b; top: 50%; transform: translateY(-50%); }
+        .speed-cursor::after { content: ''; position: absolute; right: 0; top: calc(-3px * var(--hud-scale)); border: calc(3px * var(--hud-scale)) solid transparent; border-right: calc(6px * var(--hud-scale)) solid #ffeb3b; }
+        .speed-label { position: absolute; top: calc(4px * var(--hud-scale)); left: 50%; transform: translateX(-50%); color: var(--hud-primary); font-size: calc(8px * var(--hud-scale)); font-weight: bold; }
+        .speed-value { position: absolute; bottom: calc(4px * var(--hud-scale)); left: 50%; transform: translateX(-50%); color: #ffeb3b; font-size: calc(12px * var(--hud-scale)); font-weight: bold; font-family: monospace; }
+
+        .alt-wrap {
+            position: absolute; right: calc(6px * var(--hud-scale)); top: 50%; transform: translateY(-50%);
+            width: calc(50px * var(--hud-scale)); height: calc(180px * var(--hud-scale));
+            background: var(--hud-bg); border: calc(1px * var(--hud-scale)) solid var(--hud-border);
+            border-radius: calc(8px * var(--hud-scale)); backdrop-filter: blur(3px); overflow: hidden; box-shadow: var(--hud-glow);
+        }
+        .alt-tape { position: absolute; width: 100%; text-align: center; color: var(--hud-primary); font-size: calc(10px * var(--hud-scale)); font-family: monospace; transition: transform 0.1s; }
+        .alt-cursor { position: absolute; left: 0; width: 100%; height: calc(2px * var(--hud-scale)); background: #ffeb3b; top: 50%; transform: translateY(-50%); }
+        .alt-cursor::after { content: ''; position: absolute; right: 0; top: calc(-3px * var(--hud-scale)); border: calc(3px * var(--hud-scale)) solid transparent; border-right: calc(6px * var(--hud-scale)) solid #ffeb3b; }
+        .alt-label { position: absolute; top: calc(4px * var(--hud-scale)); left: 50%; transform: translateX(-50%); color: var(--hud-primary); font-size: calc(8px * var(--hud-scale)); font-weight: bold; }
+        .alt-value { position: absolute; bottom: calc(4px * var(--hud-scale)); left: 50%; transform: translateX(-50%); color: #ffeb3b; font-size: calc(12px * var(--hud-scale)); font-weight: bold; font-family: monospace; }
+
+        .info-strip {
+            position: absolute; top: calc(6px * var(--hud-scale)); right: calc(6px * var(--hud-scale));
+            background: var(--hud-bg); border: calc(1px * var(--hud-scale)) solid var(--hud-border);
+            border-radius: calc(6px * var(--hud-scale));
+            padding: calc(6px * var(--hud-scale)) calc(10px * var(--hud-scale));
+            color: var(--hud-primary); font-size: calc(10px * var(--hud-scale)); font-family: monospace;
+            backdrop-filter: blur(3px); box-shadow: var(--hud-glow); line-height: 1.5;
+        }
+        .info-strip span { opacity: 0.7; }
+        .info-strip b { color: #fff; font-weight: 600; }
+
+        .minimap-wrap {
+            position: absolute; bottom: calc(10px * var(--hud-scale)); right: calc(10px * var(--hud-scale));
+            width: calc(80px * var(--hud-scale)); height: calc(80px * var(--hud-scale));
+            border-radius: 50%; border: calc(2px * var(--hud-scale)) solid var(--hud-border);
+            background: var(--hud-bg); overflow: hidden; backdrop-filter: blur(3px); box-shadow: var(--hud-glow);
+        }
+        .minimap-plane { position: absolute; top: 50%; left: 50%; width: 0; height: 0; border-left: calc(4px * var(--hud-scale)) solid transparent; border-right: calc(4px * var(--hud-scale)) solid transparent; border-bottom: calc(8px * var(--hud-scale)) solid #ffeb3b; transform-origin: 50% 75%; transition: transform 0.1s; }
+        .minimap-grid { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-image: linear-gradient(rgba(0,255,200,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(0,255,200,0.1) 1px, transparent 1px); background-size: calc(20px * var(--hud-scale)) calc(20px * var(--hud-scale)); }
+
+        .gforce-wrap {
+            position: absolute; bottom: calc(6px * var(--hud-scale)); left: 50%; transform: translateX(-50%);
+            width: calc(80px * var(--hud-scale)); height: calc(14px * var(--hud-scale));
+            background: var(--hud-bg); border: calc(1px * var(--hud-scale)) solid var(--hud-border);
+            border-radius: calc(7px * var(--hud-scale)); overflow: hidden; box-shadow: var(--hud-glow);
+        }
+        .gforce-bar { position: absolute; top: 0; left: 50%; height: 100%; background: linear-gradient(to right, var(--hud-warn), #00ff00, var(--hud-warn)); transform: translateX(-50%); transition: width 0.2s; }
+        .gforce-text { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #fff; font-size: calc(8px * var(--hud-scale)); font-weight: bold; text-shadow: 0 0 3px #000; }
+
+        .systems-strip {
+            position: absolute; bottom: calc(24px * var(--hud-scale)); left: 50%; transform: translateX(-50%);
+            background: var(--hud-bg); border: calc(1px * var(--hud-scale)) solid var(--hud-border);
+            border-radius: calc(10px * var(--hud-scale)); padding: calc(3px * var(--hud-scale)) calc(10px * var(--hud-scale));
+            color: var(--hud-primary); font-size: calc(9px * var(--hud-scale)); font-family: monospace;
+            backdrop-filter: blur(3px); box-shadow: var(--hud-glow); display: flex; gap: calc(10px * var(--hud-scale));
+        }
+
+        .stall-warning {
+            position: absolute; top: calc(45px * var(--hud-scale)); left: 50%; transform: translateX(-50%);
+            color: var(--hud-warn); font-size: calc(14px * var(--hud-scale)); font-weight: bold;
+            text-shadow: 0 0 8px var(--hud-warn); opacity: 0; transition: opacity 0.3s;
+            background: rgba(0,0,0,0.4); padding: calc(2px * var(--hud-scale)) calc(8px * var(--hud-scale));
+            border-radius: calc(4px * var(--hud-scale)); pointer-events: none;
+        }
+
+        #fps { position: absolute; top: calc(6px * var(--hud-scale)); left: calc(6px * var(--hud-scale)); color: #00ff00; font-size: calc(9px * var(--hud-scale)); font-family: monospace; background: rgba(0,0,0,0.3); padding: calc(2px * var(--hud-scale)) calc(5px * var(--hud-scale)); border-radius: calc(3px * var(--hud-scale)); }
+
+        .touch-control {
+            position: absolute; bottom: calc(10px * var(--hud-scale));
+            width: calc(90px * var(--hud-scale)); height: calc(90px * var(--hud-scale)); border-radius: 50%;
+            border: calc(2px * var(--hud-scale)) solid var(--hud-border);
+            background: rgba(0, 20, 40, 0.25); pointer-events: auto; touch-action: none; backdrop-filter: blur(2px);
+        }
+        .touch-knob { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: calc(36px * var(--hud-scale)); height: calc(36px * var(--hud-scale)); border-radius: 50%; background: rgba(0, 255, 200, 0.2); border: calc(2px * var(--hud-scale)) solid rgba(0, 255, 200, 0.7); transition: transform 0.05s; }
+        #stick-left { left: calc(10px * var(--hud-scale)); bottom: calc(10px * var(--hud-scale)); }
+        #stick-right { right: calc(10px * var(--hud-scale)); bottom: calc(10px * var(--hud-scale)); }
+
+        .throttle-wrap {
+            position: absolute; right: calc(6px * var(--hud-scale)); bottom: calc(50% + 100px * var(--hud-scale));
+            width: calc(28px * var(--hud-scale)); height: calc(100px * var(--hud-scale)); pointer-events: auto;
+            background: var(--hud-bg); border: calc(1px * var(--hud-scale)) solid var(--hud-border);
+            border-radius: calc(14px * var(--hud-scale)); backdrop-filter: blur(3px); box-shadow: var(--hud-glow);
+        }
+        .throttle-track { position: absolute; top: calc(5px * var(--hud-scale)); left: 50%; transform: translateX(-50%); width: calc(4px * var(--hud-scale)); height: calc(90px * var(--hud-scale)); background: rgba(0,255,200,0.2); border-radius: calc(2px * var(--hud-scale)); }
+        .throttle-handle { position: absolute; left: 50%; transform: translateX(-50%); width: calc(20px * var(--hud-scale)); height: calc(20px * var(--hud-scale)); border-radius: 50%; background: rgba(255, 100, 0, 0.85); border: calc(2px * var(--hud-scale)) solid #ff6400; box-shadow: 0 0 8px rgba(255,100,0,0.4); transition: bottom 0.1s; }
+        .throttle-label { position: absolute; bottom: calc(-14px * var(--hud-scale)); left: 50%; transform: translateX(-50%); color: var(--hud-primary); font-size: calc(7px * var(--hud-scale)); white-space: nowrap; }
+
+        .pc-hint { position: absolute; bottom: calc(110px * var(--hud-scale)); left: 50%; transform: translateX(-50%); color: var(--hud-primary); font-size: calc(9px * var(--hud-scale)); opacity: 0.5; text-align: center; background: rgba(0,0,0,0.3); padding: calc(3px * var(--hud-scale)) calc(8px * var(--hud-scale)); border-radius: calc(4px * var(--hud-scale)); pointer-events: none; transition: opacity 2s; }
+
+        #start-screen {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: linear-gradient(180deg, #001122 0%, #003355 50%, #001a33 100%);
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            z-index: 100; color: var(--hud-primary);
+        }
+        #start-screen h1 { font-size: clamp(32px, 8vw, 64px); margin-bottom: 8px; text-shadow: 0 0 30px rgba(0,255,200,0.5); letter-spacing: 4px; }
+        #start-screen p { font-size: clamp(12px, 3vw, 16px); margin-bottom: 30px; opacity: 0.7; text-align: center; padding: 0 20px; }
+        .start-btn { padding: clamp(12px, 3vw, 18px) clamp(40px, 10vw, 70px); font-size: clamp(18px, 4vw, 26px); background: rgba(0, 255, 200, 0.15); border: 2px solid var(--hud-primary); color: var(--hud-primary); border-radius: 30px; cursor: pointer; transition: all 0.3s; pointer-events: auto; font-weight: 600; letter-spacing: 2px; }
+        .start-btn:hover, .start-btn:active { background: rgba(0, 255, 200, 0.35); box-shadow: 0 0 40px rgba(0, 255, 200, 0.4); transform: scale(1.05); }
+        .controls-help { margin-top: 25px; font-size: clamp(10px, 2.5vw, 13px); opacity: 0.5; text-align: center; line-height: 1.8; }
+
+        @media (min-width: 1024px) and (hover: hover) { .touch-control, .throttle-wrap { opacity: 0.4; } .touch-control:hover, .throttle-wrap:hover { opacity: 0.8; } }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+    <div id="game-container"></div>
+    <div id="start-screen">
+        <h1>✈ SKYMASTER PRO</h1>
+        <p>Advanced Flight Simulator</p>
+        <button class="start-btn" onclick="startGame()">TAKE OFF</button>
+        <div class="controls-help">
+            <b>Mobile:</b> Left Stick = Throttle/Yaw | Right Stick = Pitch/Roll<br>
+            <b>PC:</b> WASD = Pitch/Roll | QE = Yaw | Space/C = Throttle | G = Gear | F = Flaps
+        </div>
+    </div>
+    <div id="hud" style="display:none;">
+        <div id="fps">60 FPS</div>
+        <div class="compass-wrap">
+            <div class="compass-tape" id="compass-tape"></div>
+            <div class="compass-marker"></div>
+        </div>
+        <div class="compass-heading" id="compass-heading">000°</div>
+        <div class="info-strip">
+            <div><span>PITCH</span> <b id="info-pitch">0.0°</b></div>
+            <div><span>ROLL</span> <b id="info-roll">0.0°</b></div>
+            <div><span>V/S</span> <b id="info-vs">0</b></div>
+            <div><span>G</span> <b id="info-g">1.0</b></div>
+        </div>
+        <div class="stall-warning" id="stall-warning">⚠ STALL</div>
+        <div class="speed-wrap">
+            <div class="speed-label">SPD</div>
+            <div id="speed-tape-container" style="position:absolute;width:100%;height:100%;top:0;left:0;"></div>
+            <div class="speed-cursor"></div>
+            <div class="speed-value" id="speed-value">0</div>
+        </div>
+        <div class="alt-wrap">
+            <div class="alt-label">ALT</div>
+            <div id="alt-tape-container" style="position:absolute;width:100%;height:100%;top:0;left:0;"></div>
+            <div class="alt-cursor"></div>
+            <div class="alt-value" id="alt-value">0</div>
+        </div>
+        <div class="crosshair"><div class="crosshair-center"></div></div>
+        <div class="horizon-wrap" id="horizon">
+            <div class="horizon-inner" id="horizon-inner">
+                <div class="horizon-sky" id="horizon-sky"></div>
+                <div class="horizon-ground" id="horizon-ground"></div>
+                <div class="horizon-line"></div>
+            </div>
+            <div class="horizon-plane"></div>
+            <div class="horizon-bank-ticks">
+                <div class="bank-tick" style="transform:translateX(-50%) rotate(-30deg)"></div>
+                <div class="bank-tick" style="transform:translateX(-50%) rotate(-15deg)"></div>
+                <div class="bank-tick" style="transform:translateX(-50%) rotate(0deg);height:8px;background:#ffeb3b"></div>
+                <div class="bank-tick" style="transform:translateX(-50%) rotate(15deg)"></div>
+                <div class="bank-tick" style="transform:translateX(-50%) rotate(30deg)"></div>
+            </div>
+        </div>
+        <div class="minimap-wrap">
+            <div class="minimap-grid"></div>
+            <div class="minimap-plane" id="minimap-plane"></div>
+        </div>
+        <div class="systems-strip">
+            <span>GEAR: <b id="gear-status" style="color:#0f0">DN</b></span>
+            <span>FLAPS: <b id="flaps-status" style="color:#ff0">0%</b></span>
+        </div>
+        <div class="gforce-wrap">
+            <div class="gforce-bar" id="gforce-bar" style="width:20%"></div>
+            <div class="gforce-text" id="gforce-text">1.0G</div>
+        </div>
+        <div class="pc-hint" id="pc-hint">WASD Pitch/Roll · QE Yaw · Space/C Throttle</div>
+        <div class="touch-control" id="stick-left"><div class="touch-knob" id="knob-left"></div></div>
+        <div class="touch-control" id="stick-right"><div class="touch-knob" id="knob-right"></div></div>
+        <div class="throttle-wrap" id="throttle-wrap">
+            <div class="throttle-track"></div>
+            <div class="throttle-handle" id="throttle-handle" style="bottom:5px;"></div>
+            <div class="throttle-label">THR</div>
+        </div>
+    </div>
+
+<script>
+let scene, camera, renderer, clock;
+let airplane, terrain, water, clouds = [], buildings = [], trees = [];
+let particles = [];
+let flightData = { speed: 0, altitude: 100, heading: 0, pitch: 0, roll: 0, yaw: 0, throttle: 0.3, vs: 0, gforce: 1.0, gear: true, flaps: 0, stall: false };
+let controls = { pitch: 0, roll: 0, yaw: 0, throttle: 0.3 };
+let cameraOffset = new THREE.Vector3(0, 4, -12);
+let isGameRunning = false;
+let frameCount = 0, lastTime = 0;
+let isMobile = false;
+
+function detectMobile() { return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || (window.innerWidth < 1024 && 'ontouchstart' in window); }
+
+function noise(x, z) { return Math.sin(x*0.01)*Math.cos(z*0.01)*20 + Math.sin(x*0.03+1.5)*Math.cos(z*0.03+2.1)*10 + Math.sin(x*0.1)*Math.cos(z*0.1)*3 + Math.sin(x*0.005)*Math.cos(z*0.005)*50; }
+
+function startGame() {
+    document.getElementById('start-screen').style.display = 'none';
+    document.getElementById('hud').style.display = 'block';
+    isMobile = detectMobile();
+    if (!isMobile) { document.getElementById('pc-hint').style.display = 'block'; setTimeout(()=>{document.getElementById('pc-hint').style.opacity='0';}, 5000); }
+    else { document.getElementById('pc-hint').style.display = 'none'; }
+    init(); isGameRunning = true; animate();
+}
+
+function init() {
+    scene = new THREE.Scene();
+    scene.fog = new THREE.Fog(0x87CEEB, 300, 2000);
+    scene.background = new THREE.Color(0x87CEEB);
+    camera = new THREE.PerspectiveCamera(65, window.innerWidth/window.innerHeight, 0.1, 3000);
+    renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobile ? 1.5 : 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    document.getElementById('game-container').appendChild(renderer.domElement);
+    clock = new THREE.Clock();
+
+    scene.add(new THREE.AmbientLight(0x404040, 0.5));
+    const sun = new THREE.DirectionalLight(0xffffff, 1.0);
+    sun.position.set(100, 200, 100);
+    sun.castShadow = true;
+    sun.shadow.mapSize.width = 2048; sun.shadow.mapSize.height = 2048;
+    sun.shadow.camera.near = 0.5; sun.shadow.camera.far = 500;
+    sun.shadow.camera.left = -200; sun.shadow.camera.right = 200;
+    sun.shadow.camera.top = 200; sun.shadow.camera.bottom = -200;
+    scene.add(sun);
+    scene.add(new THREE.HemisphereLight(0x87CEEB, 0x4a3728, 0.4));
+
+    createTerrain(); createWater(); createAirplane(); createClouds(); createBuildings(); createTrees(); createRunway(); createMountains();
+    initSpeedTape(); initAltTape(); initCompass();
+    window.addEventListener('resize', onWindowResize);
+    setupControls(); setupKeyboard();
+}
+
+function createTerrain() {
+    const g = new THREE.PlaneGeometry(2000, 2000, 150, 150);
+    g.rotateX(-Math.PI/2);
+    const v = g.attributes.position.array;
+    for (let i = 0; i < v.length; i += 3) { v[i+1] = noise(v[i], v[i+2]); }
+    g.computeVertexNormals();
+    const c = document.createElement('canvas'); c.width = 512; c.height = 512;
+    const ctx = c.getContext('2d'); ctx.fillStyle = '#2d5a1e'; ctx.fillRect(0,0,512,512);
+    for (let i = 0; i < 5000; i++) { ctx.fillStyle = Math.random()>0.5?'#3a6b28':'#1e4a12'; ctx.fillRect(Math.random()*512,Math.random()*512,2,2); }
+    const t = new THREE.CanvasTexture(c); t.wrapS = THREE.RepeatWrapping; t.wrapT = THREE.RepeatWrapping; t.repeat.set(20,20);
+    terrain = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ map: t, roughness: 0.9 }));
+    terrain.receiveShadow = true; scene.add(terrain);
+}
+
+function createWater() {
+    const g = new THREE.PlaneGeometry(2000, 2000, 80, 80); g.rotateX(-Math.PI/2);
+    water = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color: 0x006994, transparent: true, opacity: 0.6, roughness: 0.1, metalness: 0.8 }));
+    water.position.y = -5; scene.add(water);
+}
+
+function createAirplane() {
+    airplane = new THREE.Group();
+    const fuselageMat = new THREE.MeshStandardMaterial({ color: 0xf0f0f0, roughness: 0.3, metalness: 0.6 });
+    const darkMat = new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.5, metalness: 0.4 });
+    const glassMat = new THREE.MeshStandardMaterial({ color: 0x224466, roughness: 0, metalness: 0.9, transparent: true, opacity: 0.6 });
+    const redMat = new THREE.MeshStandardMaterial({ color: 0xcc0000, roughness: 0.4, metalness: 0.5 });
+    const engineMat = new THREE.MeshStandardMaterial({ color: 0x888888, roughness: 0.3, metalness: 0.8 });
+    const stripeMat = new THREE.MeshStandardMaterial({ color: 0x0066cc, roughness: 0.3, metalness: 0.5 });
+
+    const fuselage = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.5, 8, 16), fuselageMat);
+    fuselage.rotation.z = Math.PI/2; fuselage.castShadow = true; airplane.add(fuselage);
+
+    const nose = new THREE.Mesh(new THREE.ConeGeometry(0.5, 2, 16), fuselageMat);
+    nose.rotation.z = -Math.PI/2; nose.position.x = 5; nose.castShadow = true; airplane.add(nose);
+
+    const canopy = new THREE.Mesh(new THREE.SphereGeometry(0.85, 16, 16, 0, Math.PI*2, 0, Math.PI/2), glassMat);
+    canopy.position.set(1.5, 0.3, 0); canopy.scale.set(1.5, 0.8, 1); airplane.add(canopy);
+
+    const wing = new THREE.Mesh(new THREE.BoxGeometry(3, 0.15, 12), fuselageMat);
+    wing.position.set(0, -0.2, 0); wing.castShadow = true; airplane.add(wing);
+
+    const leftTip = new THREE.Mesh(new THREE.BoxGeometry(1, 0.12, 1.5), redMat); leftTip.position.set(0, -0.2, 6.2); airplane.add(leftTip);
+    const rightTip = new THREE.Mesh(new THREE.BoxGeometry(1, 0.12, 1.5), redMat); rightTip.position.set(0, -0.2, -6.2); airplane.add(rightTip);
+
+    const leftStripe = new THREE.Mesh(new THREE.BoxGeometry(2, 0.16, 0.3), stripeMat); leftStripe.position.set(0, -0.2, 4); airplane.add(leftStripe);
+    const rightStripe = new THREE.Mesh(new THREE.BoxGeometry(2, 0.16, 0.3), stripeMat); rightStripe.position.set(0, -0.2, -4); airplane.add(rightStripe);
+
+    const hStab = new THREE.Mesh(new THREE.BoxGeometry(2, 0.1, 5), darkMat); hStab.position.set(-3.5, 0.3, 0); hStab.castShadow = true; airplane.add(hStab);
+    const vStab = new THREE.Mesh(new THREE.BoxGeometry(2, 2.5, 0.15), redMat); vStab.position.set(-3.5, 1.5, 0); vStab.castShadow = true; airplane.add(vStab);
+    const vStripe = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.8, 0.16), stripeMat); vStripe.position.set(-3.5, 1.5, 0); airplane.add(vStripe);
+
+    const engineGeom = new THREE.CylinderGeometry(0.4, 0.35, 2, 12); engineGeom.rotateZ(Math.PI/2);
+    const leftEngine = new THREE.Mesh(engineGeom, engineMat); leftEngine.position.set(0.5, -0.8, 2.5); leftEngine.castShadow = true; airplane.add(leftEngine);
+    const rightEngine = new THREE.Mesh(engineGeom, engineMat); rightEngine.position.set(0.5, -0.8, -2.5); rightEngine.castShadow = true; airplane.add(rightEngine);
+
+    const propGeom = new THREE.BoxGeometry(0.1, 2.8, 0.05);
+    const propMat = new THREE.MeshStandardMaterial({ color: 0x111111 });
+    airplane.userData.propLeft = new THREE.Mesh(propGeom, propMat); airplane.userData.propLeft.position.set(1.6, -0.8, 2.5); airplane.add(airplane.userData.propLeft);
+    airplane.userData.propRight = new THREE.Mesh(propGeom, propMat); airplane.userData.propRight.position.set(1.6, -0.8, -2.5); airplane.add(airplane.userData.propRight);
+
+    const spinnerGeom = new THREE.ConeGeometry(0.15, 0.5, 8); spinnerGeom.rotateZ(-Math.PI/2);
+    const leftSpinner = new THREE.Mesh(spinnerGeom, engineMat); leftSpinner.position.set(1.6, -0.8, 2.5); airplane.add(leftSpinner);
+    const rightSpinner = new THREE.Mesh(spinnerGeom, engineMat); rightSpinner.position.set(1.6, -0.8, -2.5); airplane.add(rightSpinner);
+
+    const strutGeom = new THREE.CylinderGeometry(0.08, 0.08, 1.2);
+    const wheelGeom = new THREE.CylinderGeometry(0.25, 0.25, 0.15, 12); wheelGeom.rotateX(Math.PI/2);
+    const wheelMat = new THREE.MeshStandardMaterial({ color: 0x222222 });
+
+    const noseStrut = new THREE.Mesh(strutGeom, darkMat); noseStrut.position.set(3, -1, 0); airplane.add(noseStrut);
+    const noseWheel = new THREE.Mesh(wheelGeom, wheelMat); noseWheel.position.set(3, -1.6, 0); airplane.add(noseWheel);
+    const mainStrutL = new THREE.Mesh(strutGeom, darkMat); mainStrutL.position.set(0, -1, 1.5); airplane.add(mainStrutL);
+    const mainWheelL = new THREE.Mesh(wheelGeom, wheelMat); mainWheelL.position.set(0, -1.6, 1.5); airplane.add(mainWheelL);
+    const mainStrutR = new THREE.Mesh(strutGeom, darkMat); mainStrutR.position.set(0, -1, -1.5); airplane.add(mainStrutR);
+    const mainWheelR = new THREE.Mesh(wheelGeom, wheelMat); mainWheelR.position.set(0, -1.6, -1.5); airplane.add(mainWheelR);
+
+    const exhaustGeom = new THREE.CylinderGeometry(0.06, 0.08, 0.8); exhaustGeom.rotateZ(Math.PI/2);
+    const exhaustL = new THREE.Mesh(exhaustGeom, new THREE.MeshStandardMaterial({ color: 0x444444 })); exhaustL.position.set(1.2, -0.5, 2.8); airplane.add(exhaustL);
+    const exhaustR = new THREE.Mesh(exhaustGeom, new THREE.MeshStandardMaterial({ color: 0x444444 })); exhaustR.position.set(1.2, -0.5, -2.8); airplane.add(exhaustR);
+
+    const navGeom = new THREE.SphereGeometry(0.08, 8, 8);
+    const navRed = new THREE.Mesh(navGeom, new THREE.MeshBasicMaterial({ color: 0xff0000 })); navRed.position.set(0, -0.2, 6.5); airplane.add(navRed);
+    const navGreen = new THREE.Mesh(navGeom, new THREE.MeshBasicMaterial({ color: 0x00ff00 })); navGreen.position.set(0, -0.2, -6.5); airplane.add(navGreen);
+    const navWhite = new THREE.Mesh(navGeom, new THREE.MeshBasicMaterial({ color: 0xffffff })); navWhite.position.set(-4.5, 2.5, 0); airplane.add(navWhite);
+
+    airplane.position.set(0, 105, 0); scene.add(airplane);
+}
+
+function createClouds() {
+    const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.75, roughness: 1 });
+    for (let i = 0; i < 50; i++) {
+        const cloud = new THREE.Group();
+        for (let j = 0; j < 5 + Math.floor(Math.random()*6); j++) {
+            const puff = new THREE.Mesh(new THREE.SphereGeometry(3+Math.random()*5, 8, 8), mat);
+            puff.position.set((Math.random()-0.5)*15, (Math.random()-0.5)*4, (Math.random()-0.5)*10);
+            puff.scale.set(1+Math.random()*0.5, 0.6+Math.random()*0.3, 1+Math.random()*0.5);
+            cloud.add(puff);
+        }
+        cloud.position.set((Math.random()-0.5)*1800, 150+Math.random()*200, (Math.random()-0.5)*1800);
+        scene.add(cloud); clouds.push(cloud);
+    }
+}
+
+function createBuildings() {
+    const colors = [0xcccccc, 0xaaaaaa, 0x999999, 0xb0b0b0, 0x8a8a8a];
+    for (let i = 0; i < 70; i++) {
+        const h = 10+Math.random()*55, w = 8+Math.random()*14, d = 8+Math.random()*14;
+        const b = new THREE.Mesh(new THREE.BoxGeometry(w,h,d), new THREE.MeshStandardMaterial({ color: colors[Math.floor(Math.random()*colors.length)], roughness: 0.8 }));
+        const x = (Math.random()-0.5)*1600, z = (Math.random()-0.5)*1600, y = noise(x,z)+h/2;
+        if (y > 0 && (Math.abs(x) > 100 || Math.abs(z) > 50)) {
+            b.position.set(x,y,z); b.castShadow = true; b.receiveShadow = true; scene.add(b); buildings.push(b);
+            if (Math.random() > 0.3) {
+                const win = new THREE.Mesh(new THREE.PlaneGeometry(w*0.7,h*0.7), new THREE.MeshBasicMaterial({ color: Math.random()>0.7?0xffffaa:0x224466, transparent: true, opacity: 0.3+Math.random()*0.3 }));
+                win.position.set(0,0,d/2+0.1); b.add(win);
+            }
+        }
+    }
+    const towerBase = new THREE.Mesh(new THREE.CylinderGeometry(6,8,40,8), new THREE.MeshStandardMaterial({ color: 0xffffff }));
+    towerBase.position.set(80,25,80); towerBase.castShadow = true; scene.add(towerBase);
+    const towerTop = new THREE.Mesh(new THREE.CylinderGeometry(10,6,8,8), new THREE.MeshStandardMaterial({ color: 0x4488cc, transparent: true, opacity: 0.7 }));
+    towerTop.position.set(80,49,80); scene.add(towerTop);
+    const antenna = new THREE.Mesh(new THREE.CylinderGeometry(0.2,0.2,15), new THREE.MeshStandardMaterial({ color: 0x888888 }));
+    antenna.position.set(80,60,80); scene.add(antenna);
+    const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.5), new THREE.MeshBasicMaterial({ color: 0xff0000 }));
+    beacon.position.set(80,68,80); scene.add(beacon);
+}
+
+function createTrees() {
+    const trunkMat = new THREE.MeshStandardMaterial({ color: 0x4a3728 });
+    const leafMat = new THREE.MeshStandardMaterial({ color: 0x1e6b1e });
+    const leafMat2 = new THREE.MeshStandardMaterial({ color: 0x2d5a1e });
+    for (let i = 0; i < 250; i++) {
+        const tree = new THREE.Group();
+        const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.3,0.5,3,6), trunkMat); trunk.position.y = 1.5; trunk.castShadow = true; tree.add(trunk);
+        const leaves = new THREE.Mesh(new THREE.ConeGeometry(2.5,6,6), Math.random()>0.5?leafMat:leafMat2); leaves.position.y = 4.5; leaves.castShadow = true; tree.add(leaves);
+        const x = (Math.random()-0.5)*1800, z = (Math.random()-0.5)*1800, y = noise(x,z);
+        if (y > 2 && (Math.abs(x) > 120 || Math.abs(z) > 60)) {
+            tree.position.set(x,y,z); const s = 0.7+Math.random()*0.8; tree.scale.set(s,s,s); scene.add(tree); trees.push(tree);
+        }
+    }
+}
+
+function createRunway() {
+    const runway = new THREE.Mesh(new THREE.PlaneGeometry(800,40), new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.9 }));
+    runway.rotation.x = -Math.PI/2; runway.position.set(0,0.1,0); runway.receiveShadow = true; scene.add(runway);
+    for (let i = -350; i < 350; i += 60) { const m = new THREE.Mesh(new THREE.PlaneGeometry(30,2), new THREE.MeshBasicMaterial({ color: 0xffffff })); m.rotation.x = -Math.PI/2; m.position.set(i,0.2,0); scene.add(m); }
+    const numMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+    const n1 = new THREE.Mesh(new THREE.PlaneGeometry(15,10), numMat); n1.rotation.x = -Math.PI/2; n1.position.set(-350,0.2,12); scene.add(n1);
+    const n2 = new THREE.Mesh(new THREE.PlaneGeometry(15,10), numMat); n2.rotation.x = -Math.PI/2; n2.position.set(350,0.2,-12); n2.rotation.z = Math.PI; scene.add(n2);
+    const lg = new THREE.SphereGeometry(0.3); const lm = new THREE.MeshBasicMaterial({ color: 0xffffaa });
+    for (let i = -380; i <= 380; i += 40) { const l1 = new THREE.Mesh(lg,lm); l1.position.set(i,0.5,18); scene.add(l1); const l2 = new THREE.Mesh(lg,lm); l2.position.set(i,0.5,-18); scene.add(l2); }
+    const gm = new THREE.MeshBasicMaterial({ color: 0x00ff00 }); const rm = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+    for (let i = -18; i <= 18; i += 6) { const gl = new THREE.Mesh(lg,gm); gl.position.set(-380,0.5,i); scene.add(gl); const rl = new THREE.Mesh(lg,rm); rl.position.set(380,0.5,i); scene.add(rl); }
+    const taxi = new THREE.Mesh(new THREE.PlaneGeometry(10,200), new THREE.MeshStandardMaterial({ color: 0x444444 })); taxi.rotation.x = -Math.PI/2; taxi.position.set(100,0.1,120); scene.add(taxi);
+    for (let i = 0; i < 4; i++) {
+        const hangar = new THREE.Mesh(new THREE.BoxGeometry(30,12,40), new THREE.MeshStandardMaterial({ color: 0x888888 }));
+        hangar.position.set(120+i*50,6,250+(i%2)*60); hangar.castShadow = true; scene.add(hangar);
+        const roof = new THREE.Mesh(new THREE.ConeGeometry(28,5,4), new THREE.MeshStandardMaterial({ color: 0x666666 })); roof.rotation.y = Math.PI/4; roof.position.set(120+i*50,14,250+(i%2)*60); scene.add(roof);
+    }
+}
+
+function createMountains() {
+    const mat = new THREE.MeshStandardMaterial({ color: 0x5a6b5a, roughness: 0.9, flatShading: true });
+    for (let i = 0; i < 25; i++) {
+        const h = 80+Math.random()*140, r = 40+Math.random()*80;
+        const m = new THREE.Mesh(new THREE.ConeGeometry(r,h,6), mat);
+        const angle = (i/25)*Math.PI*2, dist = 700+Math.random()*300;
+        m.position.set(Math.cos(angle)*dist, h/2-20, Math.sin(angle)*dist); m.castShadow = true; scene.add(m);
+    }
+}
+
+function initSpeedTape() {
+    const c = document.getElementById('speed-tape-container'); let h = '';
+    for (let i = -15; i <= 15; i++) { h += `<div class="speed-tape" style="top:${50+i*6}%">${Math.abs(i*20)}</div>`; }
+    c.innerHTML = h;
+}
+function initAltTape() {
+    const c = document.getElementById('alt-tape-container'); let h = '';
+    for (let i = -15; i <= 15; i++) { h += `<div class="alt-tape" style="top:${50+i*6}%">${Math.abs(i*100)}</div>`; }
+    c.innerHTML = h;
+}
+function initCompass() {
+    const tape = document.getElementById('compass-tape'); const dirs = ['N','NE','E','SE','S','SW','W','NW']; let h = '';
+    for (let i = -6; i <= 6; i++) { for (let j = 0; j < 8; j++) { const left = (i*360+j*45)*(260/90)+130-16; h += `<span style="position:absolute;left:${left}px;top:8px;width:32px;text-align:center;">${dirs[j]}</span>`; } }
+    tape.innerHTML = h;
+}
+
+function setupControls() {
+    const leftStick = document.getElementById('stick-left'); const leftKnob = document.getElementById('knob-left'); let leftActive = false;
+    leftStick.addEventListener('touchstart', (e) => { e.preventDefault(); leftActive = true; updateLeftStick(e.touches[0]); });
+    leftStick.addEventListener('touchmove', (e) => { e.preventDefault(); if (leftActive) updateLeftStick(e.touches[0]); });
+    leftStick.addEventListener('touchend', () => { leftActive = false; leftKnob.style.transform = 'translate(-50%,-50%)'; controls.yaw = 0; });
+    function updateLeftStick(touch) {
+        const rect = leftStick.getBoundingClientRect(); const cx = rect.left+rect.width/2, cy = rect.top+rect.height/2;
+        const maxR = rect.width*0.35; let dx = touch.clientX-cx, dy = touch.clientY-cy;
+        const dist = Math.sqrt(dx*dx+dy*dy); if (dist > maxR) { dx = dx/dist*maxR; dy = dy/dist*maxR; }
+        leftKnob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+        controls.yaw = dx/maxR; controls.throttle = Math.max(0, Math.min(1, controls.throttle - dy/maxR*0.03));
+    }
+    const rightStick = document.getElementById('stick-right'); const rightKnob = document.getElementById('knob-right'); let rightActive = false;
+    rightStick.addEventListener('touchstart', (e) => { e.preventDefault(); rightActive = true; updateRightStick(e.touches[0]); });
+    rightStick.addEventListener('touchmove', (e) => { e.preventDefault(); if (rightActive) updateRightStick(e.touches[0]); });
+    rightStick.addEventListener('touchend', () => { rightActive = false; rightKnob.style.transform = 'translate(-50%,-50%)'; controls.pitch = 0; controls.roll = 0; });
+    function updateRightStick(touch) {
+        const rect = rightStick.getBoundingClientRect(); const cx = rect.left+rect.width/2, cy = rect.top+rect.height/2;
+        const maxR = rect.width*0.35; let dx = touch.clientX-cx, dy = touch.clientY-cy;
+        const dist = Math.sqrt(dx*dx+dy*dy); if (dist > maxR) { dx = dx/dist*maxR; dy = dy/dist*maxR; }
+        rightKnob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+        controls.roll = dx/maxR; controls.pitch = -dy/maxR;
+    }
+    const throttleWrap = document.getElementById('throttle-wrap'); const throttleHandle = document.getElementById('throttle-handle'); let throttleActive = false;
+    throttleWrap.addEventListener('touchstart', (e) => { e.preventDefault(); throttleActive = true; updateThrottle(e.touches[0]); });
+    throttleWrap.addEventListener('touchmove', (e) => { e.preventDefault(); if (throttleActive) updateThrottle(e.touches[0]); });
+    throttleWrap.addEventListener('touchend', () => { throttleActive = false; });
+    function updateThrottle(touch) {
+        const rect = throttleWrap.getBoundingClientRect(); const trackH = rect.height-10;
+        const pct = Math.max(0, Math.min(1, 1-(touch.clientY-rect.top-5)/trackH));
+        controls.throttle = pct; throttleHandle.style.bottom = (5+pct*(trackH-20))+'px';
+    }
+}
+
+function setupKeyboard() {
+    const keys = {};
+    window.addEventListener('keydown', (e) => { keys[e.key.toLowerCase()] = true; if (e.key === 'g') flightData.gear = !flightData.gear; if (e.key === 'f') flightData.flaps = Math.min(100, flightData.flaps+25); if (e.key === 'Shift') flightData.flaps = Math.max(0, flightData.flaps-25); });
+    window.addEventListener('keyup', (e) => keys[e.key.toLowerCase()] = false);
+    setInterval(() => {
+        if (!isGameRunning) return;
+        if (keys['w'] || keys['arrowup']) controls.pitch = Math.min(1, controls.pitch+0.06);
+        if (keys['s'] || keys['arrowdown']) controls.pitch = Math.max(-1, controls.pitch-0.06);
+        if (keys['a'] || keys['arrowleft']) controls.roll = Math.max(-1, controls.roll-0.06);
+        if (keys['d'] || keys['arrowright']) controls.roll = Math.min(1, controls.roll+0.06);
+        if (keys['q']) controls.yaw = Math.max(-1, controls.yaw-0.06);
+        if (keys['e']) controls.yaw = Math.min(1, controls.yaw+0.06);
+        if (keys[' ']) controls.throttle = Math.min(1, controls.throttle+0.025);
+        if (keys['c']) controls.throttle = Math.max(0, controls.throttle-0.025);
+        if (!keys['w'] && !keys['s'] && !keys['arrowup'] && !keys['arrowdown']) controls.pitch *= 0.92;
+        if (!keys['a'] && !keys['d'] && !keys['arrowleft'] && !keys['arrowright']) controls.roll *= 0.92;
+        if (!keys['q'] && !keys['e']) controls.yaw *= 0.92;
+    }, 50);
+}
+
+function updatePhysics(dt) {
+    const maxSpeed = 250, minSpeed = 40, stallSpeed = 55;
+    const targetSpeed = minSpeed + controls.throttle*(maxSpeed-minSpeed);
+    flightData.speed += (targetSpeed - flightData.speed)*0.5*dt;
+    flightData.stall = flightData.speed < stallSpeed && flightData.altitude > 10;
+    const pitchEffect = Math.sin(flightData.pitch)*flightData.speed*0.3;
+    flightData.vs = pitchEffect*10; flightData.altitude += flightData.vs*dt; flightData.altitude = Math.max(0, flightData.altitude);
+    const turnRate = controls.roll*flightData.speed*0.02*dt; flightData.heading += turnRate; flightData.heading = (flightData.heading+360)%360;
+    flightData.heading += controls.yaw*30*dt;
+    flightData.pitch += (controls.pitch*0.8 - flightData.pitch)*2*dt;
+    flightData.roll += (controls.roll*1.2 - flightData.roll)*2*dt;
+    const turnG = 1 + Math.abs(controls.roll)*0.5 + Math.abs(controls.pitch)*0.3;
+    flightData.gforce += (turnG - flightData.gforce)*3*dt;
+    const rad = flightData.heading*Math.PI/180; const pitchRad = flightData.pitch*0.5;
+    airplane.position.x += Math.cos(rad)*Math.cos(pitchRad)*flightData.speed*dt;
+    airplane.position.z += Math.sin(rad)*Math.cos(pitchRad)*flightData.speed*dt;
+    airplane.position.y = flightData.altitude;
+    airplane.rotation.y = -rad; airplane.rotation.z = flightData.roll*0.8; airplane.rotation.x = flightData.pitch*0.5;
+    if (airplane.userData.propLeft) { airplane.userData.propLeft.rotation.x += flightData.speed*0.1; airplane.userData.propRight.rotation.x += flightData.speed*0.1; }
+    const groundH = noise(airplane.position.x, airplane.position.z);
+    if (airplane.position.y < groundH+2) { airplane.position.y = groundH+2; flightData.altitude = groundH+2; flightData.speed *= 0.95; flightData.vs = 0; }
+    const wrapDist = 900;
+    if (airplane.position.x > wrapDist) airplane.position.x -= wrapDist*2;
+    if (airplane.position.x < -wrapDist) airplane.position.x += wrapDist*2;
+    if (airplane.position.z > wrapDist) airplane.position.z -= wrapDist*2;
+    if (airplane.position.z < -wrapDist) airplane.position.z += wrapDist*2;
+}
+
+function updateCamera() {
+    const offset = cameraOffset.clone();
+    offset.applyAxisAngle(new THREE.Vector3(0,1,0), -airplane.rotation.y);
+    offset.applyAxisAngle(new THREE.Vector3(0,0,1), airplane.rotation.z*0.3);
+    const target = airplane.position.clone().add(offset);
+    camera.position.lerp(target, 0.1);
+    camera.lookAt(airplane.position.clone().add(new THREE.Vector3(5,0,0).applyEuler(airplane.rotation)));
+}
+
+function updateHUD() {
+    const speedPct = Math.min(100, (flightData.speed/250)*100);
+    document.getElementById('speed-bar') && (document.getElementById('speed-bar').style.height = speedPct+'%');
+    document.getElementById('speed-value').textContent = Math.round(flightData.speed);
+    document.getElementById('alt-value').textContent = Math.round(flightData.altitude);
+    const altOffset = -(flightData.altitude%100)/100*6;
+    document.getElementById('alt-tape-container').style.transform = `translateY(${altOffset}%)`;
+    const compassOffset = -(flightData.heading/360)*260*4;
+    document.getElementById('compass-tape').style.transform = `translateX(${compassOffset}px)`;
+    document.getElementById('compass-heading').textContent = String(Math.round(flightData.heading)).padStart(3,'0')+'°';
+    const pitchOffset = flightData.pitch*30;
+    document.getElementById('horizon-sky').style.transform = `translateY(${pitchOffset}px)`;
+    document.getElementById('horizon-ground').style.transform = `translateY(${pitchOffset}px)`;
+    document.getElementById('horizon').style.transform = `translate(-50%,-50%) rotate(${-flightData.roll*30}deg)`;
+    document.getElementById('info-pitch').textContent = (flightData.pitch*30).toFixed(1)+'°';
+    document.getElementById('info-roll').textContent = (flightData.roll*45).toFixed(1)+'°';
+    document.getElementById('info-vs').textContent = (flightData.vs>0?'+':'')+Math.round(flightData.vs*10)+' fpm';
+    document.getElementById('info-g').textContent = flightData.gforce.toFixed(1);
+    const gPct = Math.min(100, (flightData.gforce/3)*50);
+    document.getElementById('gforce-bar').style.width = gPct+'%';
+    document.getElementById('gforce-text').textContent = flightData.gforce.toFixed(1)+'G';
+    document.getElementById('gear-status').textContent = flightData.gear?'DN':'UP';
+    document.getElementById('gear-status').style.color = flightData.gear?'#0f0':'#f00';
+    document.getElementById('flaps-status').textContent = Math.round(flightData.flaps)+'%';
+    document.getElementById('stall-warning').style.opacity = flightData.stall?'1':'0';
+    const minimapPlane = document.getElementById('minimap-plane');
+    const mapScale = 0.05; const mapX = (airplane.position.x*mapScale)+40; const mapZ = (airplane.position.z*mapScale)+40;
+    minimapPlane.style.left = Math.max(0, Math.min(80, mapX))+'px';
+    minimapPlane.style.top = Math.max(0, Math.min(80, mapZ))+'px';
+    minimapPlane.style.transform = `translate(-50%,-50%) rotate(${flightData.heading}deg)`;
+    const throttleHandle = document.getElementById('throttle-handle');
+    const throttleRect = document.getElementById('throttle-wrap').getBoundingClientRect();
+    throttleHandle.style.bottom = (5+controls.throttle*(throttleRect.height-30))+'px';
+}
+
+function createExhaustParticles() {
+    if (flightData.speed < 10) return;
+    for (let i = 0; i < 2; i++) {
+        const geom = new THREE.SphereGeometry(0.1+Math.random()*0.2, 4, 4);
+        const mat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0.8,0.8,0.9), transparent: true, opacity: 0.4 });
+        const p = new THREE.Mesh(geom, mat);
+        const side = i===0?2.8:-2.8;
+        p.position.copy(airplane.position); p.position.x -= 2; p.position.y -= 0.5; p.position.z += side;
+        p.userData = { life: 1.0, velocity: new THREE.Vector3(-2-Math.random(), (Math.random()-0.5)*0.5, (Math.random()-0.5)*0.5) };
+        scene.add(p); particles.push(p);
+    }
+}
+
+function updateParticles(dt) {
+    for (let i = particles.length-1; i >= 0; i--) {
+        const p = particles[i]; p.userData.life -= dt*1.5; p.position.add(p.userData.velocity.clone().multiplyScalar(dt));
+        p.scale.multiplyScalar(1.02); p.material.opacity = p.userData.life*0.3;
+        if (p.userData.life <= 0) { scene.remove(p); particles.splice(i, 1); }
+    }
+}
+
+function updateClouds() { clouds.forEach(c => { c.position.x += 0.5; if (c.position.x > 1000) c.position.x = -1000; }); }
+function updateWater() { if (water) { water.position.x = Math.floor(airplane.position.x/2000)*2000; water.position.z = Math.floor(airplane.position.z/2000)*2000; } }
+
+function onWindowResize() { camera.aspect = window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); }
+
+function animate() {
+    if (!isGameRunning) return; requestAnimationFrame(animate);
+    const dt = Math.min(clock.getDelta(), 0.1);
+    updatePhysics(dt); updateCamera(); updateHUD(); createExhaustParticles(); updateParticles(dt); updateClouds(); updateWater();
+    renderer.render(scene, camera);
+    frameCount++; const now = performance.now(); if (now-lastTime >= 1000) { document.getElementById('fps').textContent = frameCount+' FPS'; frameCount = 0; lastTime = now; }
+}
+
+document.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
+document.addEventListener('gesturestart', (e) => e.preventDefault());
+</script>
+</body>
+</html>
